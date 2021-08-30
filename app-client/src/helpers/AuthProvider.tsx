@@ -26,7 +26,7 @@ export const AuthProvider = (props: IAuthProviderProps) => {
             return;
         }
         getAccessTokenSilently({
-            audience: "https://auth0.dev.midfunder.com",
+            audience: process.env.REACT_APP_AUTH_AUDIENCE,
         })
             .then((tok) => setToken(tok))
             .catch((reason: Error) => { console.log(reason); } );

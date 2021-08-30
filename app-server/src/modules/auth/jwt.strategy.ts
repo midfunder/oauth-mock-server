@@ -59,7 +59,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       algorithms: ['RS256'],
       passReqToCallback: true,
       secretOrKey: passportJwtSecret({
-        cache: true,
+        cache: process.env.AUTH_JWKS_CACHE_DISABLE === undefined,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
         jwksUri: process.env.AUTH_JWKS_URL,
