@@ -50,12 +50,12 @@ func NewAuthServer(opts *AuthServerOptions) AuthServer {
 	reader := rand.Reader
 	key, err := rsa.GenerateKey(reader, 256*8)
 	if err != nil {
-		log.Fatal().Err(err)
+		log.Fatal().Err(err).Msg("RSA GenerateKey")
 	}
 
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, nil)
 	if err != nil {
-		log.Fatal().Err(err)
+		log.Fatal().Err(err).Msg("new RSA Signer")
 	}
 	return &authServer{
 		opts:     opts,
@@ -140,12 +140,14 @@ func (srv *authServer) generateToken(w http.ResponseWriter, req *http.Request, s
 	// grant_type: "authorization_code"
 	idToken, err := srv.getIDToken(req, sessionID, session)
 	if err != nil {
+		log.Error().Err(err).Msg("id_token generation")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	accessToken, err := srv.getAccessToken(req, sessionID, session)
 	if err != nil {
+		log.Error().Err(err).Msg("access_token generation")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -264,6 +266,7 @@ func (srv *authServer) loginHandler(w http.ResponseWriter, req *http.Request) {
 	email := req.FormValue("email")
 	if email == "" {
 		http.Error(w, "email must be specified", http.StatusBadRequest)
+		return
 	}
 
 	var isValidated bool
@@ -365,6 +368,7 @@ func (srv *authServer) userinfo(w http.ResponseWriter, req *http.Request) {
 	response, err := json.Marshal(userinfo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-type", "application/json")

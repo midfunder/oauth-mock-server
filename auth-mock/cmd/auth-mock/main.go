@@ -75,5 +75,7 @@ func main() {
 	log.Info().Msg("Starting auth server...")
 	certFile := opt.CertificatesPath + ".crt"
 	keyFile := opt.CertificatesPath + ".key"
-	log.Fatal().Err(http.ListenAndServeTLS(fmt.Sprintf(":%d", opt.Port), certFile, keyFile, mux))
+	log.Fatal().Err(
+		http.ListenAndServeTLS(fmt.Sprintf(":%d", opt.Port), certFile, keyFile, mux)).
+		Msg("ListenAndServe")
 }
