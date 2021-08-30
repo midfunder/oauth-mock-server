@@ -4,8 +4,7 @@ The auth-mock directory contains a OAuth authentication server that
 allows the user to select its identity parameters without suplying
 any credentials. It is designed as a mock server for integration test.
 
-The _app-client_ directory contains a react app which uses the
-_@auth0/auth0-react[https://www.npmjs.com/package/@auth0/auth0-react]_ npm
+The _app-client_ directory contains a react app which uses the  [auth0/auth0-react](https://www.npmjs.com/package/@auth0/auth0-react) npm
 package to authenticate with an OAuth server.
 
 The _app-server_ directory contains a node / nest.js API server that uses
@@ -40,5 +39,5 @@ AUTH_JWKS_URL=https://<domain>/.well-known/jwks.json
 which is the location of the JWKS json file that contains the public RS256 key
 used to verify the signed JWTs.
 
-The mock server attempts to follow the oauth authorization process defined in RFC6749[https://datatracker.ietf.org/doc/html/rfc6749]; however it has only
+The mock server attempts to follow the oauth authorization process defined in [RFC6749](https://datatracker.ietf.org/doc/html/rfc6749); however it has only
 been tested against the auth0-specific client APIs.
