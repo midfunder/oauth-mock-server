@@ -213,7 +213,6 @@ func (srv *authServer) authToken(w http.ResponseWriter, req *http.Request) {
 	}
 
 	srv.generateToken(w, req, sessionID, state)
-	w.WriteHeader(http.StatusConflict)
 }
 
 func getSessionID(req *http.Request) (uuid.UUID, bool) {

@@ -29,7 +29,7 @@ func (opt *options) Register() {
 		log.Fatal().Err(err)
 	}
 
-	flag.IntVar(&opt.Port, "port", 8080, "authentication server port")
+	flag.IntVar(&opt.Port, "port", 443, "authentication server port")
 	flag.StringVar(&opt.StaticDir, "static", path.Join(execDir, "static"), "Directory for static html/css files")
 	flag.StringVar(&opt.CertificatesPath, "cert", "localhost", "Pathname containing {.key,.crt} certificate files")
 	flag.BoolVar(&opt.Debug, "debug", false, "Enable debug level logging")

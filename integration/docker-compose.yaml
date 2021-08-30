@@ -1,0 +1,72 @@
+services:
+  auth-server:
+    build: ../auth-mock
+    command: /opt/auth-mock/auth-mock --cert /secrets/auth-server/certificate
+    networks:
+      default:
+        aliases:
+          - auth-server.dev.local
+    expose:
+      - 443
+    volumes:
+      - type: bind
+        source: ./secrets
+        target: /secrets
+
+  api-server:
+    build: ../app-server
+    environment:
+      AUTH_JWKS_URL: 'https://auth-server/.well-known/jwks.json'
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
+    depends_on:
+      - auth-server
+    networks:
+      default:
+        aliases:
+          - api-server.dev.local
+    expose:
+      - 80
+    volumes:
+      - type: bind
+        source: ./secrets
+        target: /secrets
+  
+  webapp:
+    build:
+      context: ../app-client
+      args:
+        REACT_APP_AUTH_DOMAIN: auth-server.dev.local
+        REACT_APP_AUTH_CLIENT_ID: webapp
+        REACT_APP_AUTH_AUDIENCE: api.dev.local
+        REACT_APP_API_URL: 'http://api-server.dev.local'
+    depends_on:
+      - auth-server
+      - api-server
+    networks:
+      default:
+        aliases:
+          - webapp.dev.local
+    expose:
+      - 443
+    volumes:
+      - type: bind
+        source: ./secrets
+        target: /secrets
+
+  test:
+    image: cypress/included:8.3.0
+    depends_on:
+      - webapp
+      - auth-server
+    working_dir: /e2e
+    volumes:
+      - type: bind
+        source: .
+        target: /e2e
+      - type: bind
+        source: ./secrets
+        target: /secrets
+
+networks:
+  default:
+    
