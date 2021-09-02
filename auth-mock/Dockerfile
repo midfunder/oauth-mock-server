@@ -1,8 +1,6 @@
 FROM golang:1.17-alpine as builder
 WORKDIR /workspace
 
-RUN apk add openssl
-
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
