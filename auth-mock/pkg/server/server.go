@@ -104,13 +104,15 @@ func (srv *authServer) getIDToken(req *http.Request, sessionID uuid.UUID, sessio
 		Expiry:   jwt.NewNumericDate(time.Now().Add(10 * time.Minute)),
 	}
 	extClaims := struct {
-		Nonce string `json:"nonce"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
+		Nonce         string `json:"nonce"`
+		Email         string `json:"email"`
+		Name          string `json:"name"`
+		EmailVerified bool   `json:"email_verified"`
 	}{
-		Email: session.email,
-		Name:  session.name,
-		Nonce: session.nonce,
+		Email:         session.email,
+		Name:          session.name,
+		Nonce:         session.nonce,
+		EmailVerified: session.isValidated,
 	}
 	return jwt.Signed(srv.signer).Claims(claims).Claims(extClaims).CompactSerialize()
 }
@@ -237,6 +239,13 @@ func makeRedirectURI(sessionID uuid.UUID, values url.Values) url.URL {
 	}
 }
 
+func (srv *authServer) updateSession(session *sessionState, values url.Values) {
+	session.nonce = values.Get("nonce")
+	session.clientID = values.Get("client_id")
+	session.aud = values.Get("audience")
+	session.redirectUri = values.Get("redirect_uri")
+}
+
 func (srv *authServer) authorize(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -245,7 +254,8 @@ func (srv *authServer) authorize(w http.ResponseWriter, req *http.Request) {
 
 	// Redirect back to client if we already have login information.
 	if sessionID, ok := getSessionID(req); ok {
-		if _, exists := srv.getSessionState(sessionID); exists {
+		if session, exists := srv.getSessionState(sessionID); exists {
+			srv.updateSession(session, req.URL.Query())
 			redirectURI := makeRedirectURI(sessionID, req.URL.Query())
 			http.Redirect(w, req, redirectURI.RequestURI(), http.StatusFound)
 			return
