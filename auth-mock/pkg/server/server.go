@@ -174,10 +174,11 @@ func (srv *authServer) generateToken(w http.ResponseWriter, req *http.Request, s
 }
 
 type tokenRequest struct {
-	GrantType   string `json:"grant_type"`
-	ClientID    string `json:"client_id"`
-	Code        string `json:"code"`
-	RedirectURI string `json:"redirect_uri"`
+	GrantType    string `json:"grant_type"`
+	ClientID     string `json:"client_id"`
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+	RedirectURI  string `json:"redirect_uri"`
 }
 
 func (srv *authServer) authToken(w http.ResponseWriter, req *http.Request) {
