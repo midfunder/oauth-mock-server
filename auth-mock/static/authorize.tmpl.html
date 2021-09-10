@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Authorization Response</title>
+</head>
+
+<body>
+    <script type="text/javascript">
+        (function (window, document, undefined) {
+            // Begin : these values rendered by server
+            var redirectURI = "{{.RedirectURI}}";
+            var webMessageRequest = {};
+            var authorizationResponse = {
+                type: "authorization_response",
+                response: {
+                    code: "{{.Code}}",
+                    state: "{{.State}}"
+                }
+            };
+            // End
+            var mainWin = (window.opener != window) ? window.opener : window.parent;
+            // For relay mode
+            if (webMessageRequest["web_message_uri"] && webMessageRequest["web_message_target"]) {
+                window.addEventListener("message", function (evt) {
+                    if (evt.origin != redirectURI)
+                        return; // replay mode
+                    switch (evt.data.type) {
+                        case "relay_response":
+                            messageTargetWindow =
+                                evt.source.document.getElementById(webMessageRequest["web_message_target"]);
+                            if (messageTargetWindow) {
+                                messageTargetWindow.postMessage({
+                                    type: "authorization_response",
+                                    response: authorizationResponse
+                                }, webMessageRequest["web_message_uri"]);
+                            }
+                        default:
+                    }
+                });
+                mainWin.postMessage({type: "relay_request"}, redirectURI);
+            } else {
+                mainWin.postMessage({
+                    type: "authorization_response",
+                    response: authorizationResponse
+                }, redirectURI);
+            }
+        })(this, this.document);
+    </script>
+</body>
+
+</html>

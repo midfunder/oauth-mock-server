@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -10,9 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -42,7 +44,7 @@ type authServer struct {
 	opts     *AuthServerOptions
 	key      *rsa.PrivateKey
 	signer   jose.Signer
-	sessions map[uuid.UUID]*sessionState
+	sessions map[string]*sessionState
 	mutex    sync.Mutex
 }
 
@@ -61,27 +63,31 @@ func NewAuthServer(opts *AuthServerOptions) AuthServer {
 		opts:     opts,
 		key:      key,
 		signer:   signer,
-		sessions: make(map[uuid.UUID]*sessionState),
+		sessions: make(map[string]*sessionState),
 	}
 }
 
-func (srv *authServer) getSessionState(sessionID uuid.UUID) (*sessionState, bool) {
+func (srv *authServer) getSessionState(subject string) (*sessionState, bool) {
 	srv.mutex.Lock()
 	defer srv.mutex.Unlock()
-	s, ok := srv.sessions[sessionID]
+	s, ok := srv.sessions[subject]
 	return s, ok
 }
 
-func (srv *authServer) setSessionState(sessionID uuid.UUID, session *sessionState) {
+func (srv *authServer) setSessionState(subject string, session *sessionState) {
 	srv.mutex.Lock()
 	defer srv.mutex.Unlock()
-	srv.sessions[sessionID] = session
+	srv.sessions[subject] = session
 }
 
-func (srv *authServer) clearSessionState(sessionID uuid.UUID) {
+func (srv *authServer) clearSessionState(subject string) {
 	srv.mutex.Lock()
 	defer srv.mutex.Unlock()
-	delete(srv.sessions, sessionID)
+	delete(srv.sessions, subject)
+}
+
+func makeSubject(email string) string {
+	return "oauth|" + base64.StdEncoding.EncodeToString([]byte(email))
 }
 
 type authTokenResponse struct {
@@ -93,10 +99,10 @@ type authTokenResponse struct {
 	Scope        string `json:"scope"`
 }
 
-func (srv *authServer) getIDToken(req *http.Request, sessionID uuid.UUID, session *sessionState) (string, error) {
+func (srv *authServer) getIDToken(req *http.Request, subject string, session *sessionState) (string, error) {
 	claims := jwt.Claims{
 		Issuer:  "https://" + req.Host + "/",
-		Subject: sessionID.String(),
+		Subject: subject,
 		Audience: jwt.Audience{
 			session.clientID,
 		},
@@ -117,10 +123,10 @@ func (srv *authServer) getIDToken(req *http.Request, sessionID uuid.UUID, sessio
 	return jwt.Signed(srv.signer).Claims(claims).Claims(extClaims).CompactSerialize()
 }
 
-func (srv *authServer) getAccessToken(req *http.Request, sessionID uuid.UUID, session *sessionState) (string, error) {
+func (srv *authServer) getAccessToken(req *http.Request, subject string, session *sessionState) (string, error) {
 	claims := jwt.Claims{
 		Issuer:  "https://" + req.Host + "/",
-		Subject: sessionID.String(),
+		Subject: subject,
 		Audience: jwt.Audience{
 			session.aud,
 			"https://" + req.Host + "/userinfo",
@@ -138,16 +144,16 @@ func (srv *authServer) getAccessToken(req *http.Request, sessionID uuid.UUID, se
 	return jwt.Signed(srv.signer).Claims(claims).Claims(extClaims).CompactSerialize()
 }
 
-func (srv *authServer) generateToken(w http.ResponseWriter, req *http.Request, sessionID uuid.UUID, session *sessionState) {
+func (srv *authServer) generateToken(w http.ResponseWriter, req *http.Request, subject string, session *sessionState) {
 	// grant_type: "authorization_code"
-	idToken, err := srv.getIDToken(req, sessionID, session)
+	idToken, err := srv.getIDToken(req, subject, session)
 	if err != nil {
 		log.Error().Err(err).Msg("id_token generation")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	accessToken, err := srv.getAccessToken(req, sessionID, session)
+	accessToken, err := srv.getAccessToken(req, subject, session)
 	if err != nil {
 		log.Error().Err(err).Msg("access_token generation")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -203,37 +209,27 @@ func (srv *authServer) authToken(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sessionID, err := uuid.Parse(request.Code)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	state, ok := srv.getSessionState(sessionID)
+	state, ok := srv.getSessionState(request.Code)
 	if !ok {
 		http.Error(w, "Invalid token request code", http.StatusBadRequest)
 		return
 	}
 
-	srv.generateToken(w, req, sessionID, state)
+	srv.generateToken(w, req, request.Code, state)
 }
 
-func getSessionID(req *http.Request) (uuid.UUID, bool) {
+func getCookieValue(req *http.Request) (string, bool) {
 	cookie, err := req.Cookie(cookieName)
 	if err != nil {
-		return uuid.Nil, false
+		return "", false
 	}
-	sessionID, err := uuid.Parse(cookie.Value)
-	if err != nil {
-		return uuid.Nil, false
-	}
-	return sessionID, true
+	return cookie.Value, true
 }
 
-func makeRedirectURI(sessionID uuid.UUID, values url.Values) url.URL {
+func makeRedirectURI(subject string, values url.Values) url.URL {
 	query := url.Values{}
 	query.Add("state", values.Get("state"))
-	query.Add("code", sessionID.String())
+	query.Add("code", subject)
 	return url.URL{
 		Path:     values.Get("redirect_uri"),
 		RawQuery: query.Encode(),
@@ -247,17 +243,51 @@ func (srv *authServer) updateSession(session *sessionState, values url.Values) {
 	session.redirectUri = values.Get("redirect_uri")
 }
 
+func (srv *authServer) authWebMessage(w http.ResponseWriter, subject string, query url.Values) {
+	tmpl, err := template.ParseFiles(path.Join(srv.opts.StaticDir, "authorize.tmpl.html"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data := struct {
+		RedirectURI string
+		Code        string
+		State       string
+	}{
+		RedirectURI: query.Get("redirect_uri"),
+		Code:        subject,
+		State:       query.Get("state"),
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 func (srv *authServer) authorize(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
+	if zerolog.GlobalLevel() == zerolog.DebugLevel {
+		m := log.Debug()
+		for k, v := range req.URL.Query() {
+			m = m.Str(k, strings.Join(v, ","))
+		}
+		m.Msg("authorize")
+	}
+
 	// Redirect back to client if we already have login information.
-	if sessionID, ok := getSessionID(req); ok {
-		if session, exists := srv.getSessionState(sessionID); exists {
+	if subject, ok := getCookieValue(req); ok {
+		log.Debug().Str("sub", subject).Msg("recv cookie")
+		if session, exists := srv.getSessionState(subject); exists {
 			srv.updateSession(session, req.URL.Query())
-			redirectURI := makeRedirectURI(sessionID, req.URL.Query())
+
+			if req.URL.Query().Get("response_mode") == "web_message" {
+				srv.authWebMessage(w, subject, req.URL.Query())
+				return
+			}
+			redirectURI := makeRedirectURI(subject, req.URL.Query())
 			http.Redirect(w, req, redirectURI.RequestURI(), http.StatusFound)
 			return
 		}
@@ -286,7 +316,7 @@ func (srv *authServer) loginHandler(w http.ResponseWriter, req *http.Request) {
 
 	values := req.URL.Query()
 
-	sessionID := uuid.New()
+	subject := makeSubject(email)
 	session := &sessionState{
 		email:       email,
 		name:        req.FormValue("name"),
@@ -296,16 +326,16 @@ func (srv *authServer) loginHandler(w http.ResponseWriter, req *http.Request) {
 		aud:         values.Get("audience"),
 		redirectUri: values.Get("redirect_uri"),
 	}
-	srv.setSessionState(sessionID, session)
+	srv.setSessionState(subject, session)
 	cookie := &http.Cookie{
 		Name:   cookieName,
-		Value:  sessionID.String(),
+		Value:  subject,
 		MaxAge: 60 * 60,
 	}
 	http.SetCookie(w, cookie)
 
 	// build redirect_uri
-	redirectURI := makeRedirectURI(sessionID, values)
+	redirectURI := makeRedirectURI(subject, values)
 	http.Redirect(w, req, redirectURI.RequestURI(), http.StatusFound)
 }
 
@@ -326,8 +356,8 @@ func (srv *authServer) logout(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if sessionID, ok := getSessionID(req); ok {
-		srv.clearSessionState(sessionID)
+	if subject, ok := getCookieValue(req); ok {
+		srv.clearSessionState(subject)
 		http.SetCookie(w, &http.Cookie{Name: cookieName, MaxAge: -1})
 	}
 	redirectURI := req.URL.Query().Get("returnTo")
@@ -352,12 +382,7 @@ func (srv *authServer) userinfo(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sessionID, err := uuid.Parse(claims.Subject)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	session, ok := srv.getSessionState(sessionID)
+	session, ok := srv.getSessionState(claims.Subject)
 	if !ok {
 		http.Error(w, "Unknown subject", http.StatusExpectationFailed)
 		return
@@ -369,7 +394,7 @@ func (srv *authServer) userinfo(w http.ResponseWriter, req *http.Request) {
 		Name          string `json:"name"`
 		EmailVerified bool   `json:"email_verified"`
 	}{
-		Subject:       sessionID.String(),
+		Subject:       claims.Subject,
 		Email:         session.email,
 		Name:          session.name,
 		EmailVerified: session.isValidated,
