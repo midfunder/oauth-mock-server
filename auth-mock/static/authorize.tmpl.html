@@ -19,7 +19,7 @@
                 }
             };
             // End
-            var mainWin = (window.opener != window) ? window.opener : window.parent;
+            var mainWin = (window.opener && window.opener != window) ? window.opener : window.parent;
             // For relay mode
             if (webMessageRequest["web_message_uri"] && webMessageRequest["web_message_target"]) {
                 window.addEventListener("message", function (evt) {
