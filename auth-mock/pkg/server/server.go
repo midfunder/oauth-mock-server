@@ -21,11 +21,22 @@ import (
 )
 
 type AuthServerOptions struct {
-	StaticDir string
+	StaticDir       string
+	UseHtmlRedirect bool
 }
 
 type AuthServer interface {
 	ServeHTTP(w http.ResponseWriter, req *http.Request)
+}
+
+type WebMessage struct {
+	RedirectURI      string
+	WebMessageURI    string
+	WebMessageTarget string
+	Code             string
+	State            string
+	Error            string
+	ErrorDescription string
 }
 
 const cookieName = "authMock"
@@ -132,7 +143,7 @@ func (srv *authServer) getAccessToken(req *http.Request, subject string, session
 			"https://" + req.Host + "/userinfo",
 		},
 		IssuedAt: jwt.NewNumericDate(time.Now()),
-		Expiry:   jwt.NewNumericDate(time.Now().Add(10 * time.Minute)),
+		Expiry:   jwt.NewNumericDate(time.Now().Add(60 * time.Minute)),
 	}
 	extClaims := struct {
 		AuthorizedParty string `json:"azp"`
@@ -226,14 +237,16 @@ func getCookieValue(req *http.Request) (string, bool) {
 	return cookie.Value, true
 }
 
-func makeRedirectURI(subject string, values url.Values) url.URL {
+func makeRedirectURI(subject string, values url.Values) (*url.URL, error) {
+	uri, err := url.Parse(values.Get("redirect_uri"))
+	if err != nil {
+		return uri, err
+	}
 	query := url.Values{}
 	query.Add("state", values.Get("state"))
 	query.Add("code", subject)
-	return url.URL{
-		Path:     values.Get("redirect_uri"),
-		RawQuery: query.Encode(),
-	}
+	uri.RawQuery = query.Encode()
+	return uri, nil
 }
 
 func (srv *authServer) updateSession(session *sessionState, values url.Values) {
@@ -249,16 +262,51 @@ func (srv *authServer) authWebMessage(w http.ResponseWriter, subject string, que
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data := struct {
-		RedirectURI string
-		Code        string
-		State       string
-	}{
+	data := WebMessage{
 		RedirectURI: query.Get("redirect_uri"),
 		Code:        subject,
 		State:       query.Get("state"),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (srv *authServer) noauthWebMessage(w http.ResponseWriter, req *http.Request) {
+	tmpl, err := template.ParseFiles(path.Join(srv.opts.StaticDir, "authorize.tmpl.html"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	uri := url.URL{
+		Scheme:   "https",
+		Host:     req.Host,
+		Path:     "login",
+		RawQuery: req.URL.RawQuery,
+	}
+
+	data := WebMessage{
+		RedirectURI:      uri.String(),
+		Error:            "Login required",
+		ErrorDescription: "No valid authentication cookie in request",
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func httpMetaRedirect(w http.ResponseWriter, uri *url.URL) {
+	tmpl, err := template.New("redirect").Parse(`
+	<head>
+	  <meta http-equiv="Refresh" content="0; URL={{.}}">
+	</head>
+	`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.Execute(w, uri.String()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -287,10 +335,19 @@ func (srv *authServer) authorize(w http.ResponseWriter, req *http.Request) {
 				srv.authWebMessage(w, subject, req.URL.Query())
 				return
 			}
-			redirectURI := makeRedirectURI(subject, req.URL.Query())
-			http.Redirect(w, req, redirectURI.RequestURI(), http.StatusFound)
+			redirectURI, err := makeRedirectURI(subject, req.URL.Query())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			http.Redirect(w, req, redirectURI.String(), http.StatusFound)
 			return
 		}
+	}
+
+	if req.URL.Query().Get("response_mode") == "web_message" {
+		srv.noauthWebMessage(w, req)
+		return
 	}
 
 	http.Redirect(w, req, "login?"+req.URL.RawQuery, http.StatusFound)
@@ -328,15 +385,25 @@ func (srv *authServer) loginHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	srv.setSessionState(subject, session)
 	cookie := &http.Cookie{
-		Name:   cookieName,
-		Value:  subject,
-		MaxAge: 60 * 60,
+		Name:     cookieName,
+		Value:    subject,
+		MaxAge:   60 * 60,
+		SameSite: http.SameSiteNoneMode,
+		Secure:   true,
 	}
 	http.SetCookie(w, cookie)
 
 	// build redirect_uri
-	redirectURI := makeRedirectURI(subject, values)
-	http.Redirect(w, req, redirectURI.RequestURI(), http.StatusFound)
+	redirectURI, err := makeRedirectURI(subject, values)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if srv.opts.UseHtmlRedirect {
+		httpMetaRedirect(w, redirectURI)
+	} else {
+		http.Redirect(w, req, redirectURI.String(), http.StatusFound)
+	}
 }
 
 func (srv *authServer) login(w http.ResponseWriter, req *http.Request) {

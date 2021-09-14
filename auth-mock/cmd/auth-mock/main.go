@@ -18,9 +18,9 @@ import (
 
 type options struct {
 	Port             int
-	StaticDir        string
 	CertificatesPath string
 	Debug            bool
+	server           server.AuthServerOptions
 }
 
 func (opt *options) Register() {
@@ -30,9 +30,10 @@ func (opt *options) Register() {
 	}
 
 	flag.IntVar(&opt.Port, "port", 443, "authentication server port")
-	flag.StringVar(&opt.StaticDir, "static", path.Join(execDir, "static"), "Directory for static html/css files")
 	flag.StringVar(&opt.CertificatesPath, "cert", "localhost", "Pathname containing {.key,.crt} certificate files")
 	flag.BoolVar(&opt.Debug, "debug", false, "Enable debug level logging")
+	flag.StringVar(&opt.server.StaticDir, "static", path.Join(execDir, "static"), "Directory for static html/css files")
+	flag.BoolVar(&opt.server.UseHtmlRedirect, "html-redirect", false, "Use html meta tag redirect")
 }
 
 type FileOpener struct {
@@ -67,10 +68,10 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	srv := server.NewAuthServer(&server.AuthServerOptions{StaticDir: opt.StaticDir})
+	srv := server.NewAuthServer(&opt.server)
 	mux := http.NewServeMux()
 	mux.Handle("/", srv)
-	mux.Handle("/static/", http.FileServer(newFileOpener(opt.StaticDir)))
+	mux.Handle("/static/", http.FileServer(newFileOpener(opt.server.StaticDir)))
 
 	log.Info().Msg("Starting auth server...")
 	certFile := opt.CertificatesPath + ".crt"

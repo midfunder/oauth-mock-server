@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strings"
 	"testing"
 
 	"crypto/rand"
@@ -32,7 +33,7 @@ func TestJWKSEncoding(t *testing.T) {
 }
 
 func TestAccessToken(t *testing.T) {
-	srv := NewAuthServer(&AuthServerOptions{"/var/tmp"}).(*authServer)
+	srv := NewAuthServer(&AuthServerOptions{"/var/tmp", false}).(*authServer)
 
 	req := httptest.NewRequest("GET", "http://example.com/oauth/token", nil)
 	sub := "user@example.com"
@@ -60,7 +61,7 @@ func TestAccessToken(t *testing.T) {
 }
 
 func TestUserinfoUnknownID(t *testing.T) {
-	srv := NewAuthServer(&AuthServerOptions{"/var/tmp"}).(*authServer)
+	srv := NewAuthServer(&AuthServerOptions{"/var/tmp", false}).(*authServer)
 
 	req := httptest.NewRequest("GET", "http://example.com/oauth/token", nil)
 	session := &sessionState{
@@ -83,7 +84,7 @@ func TestUserinfoUnknownID(t *testing.T) {
 }
 
 func TestUserinfoOK(t *testing.T) {
-	srv := NewAuthServer(&AuthServerOptions{"/var/tmp"}).(*authServer)
+	srv := NewAuthServer(&AuthServerOptions{"/var/tmp", false}).(*authServer)
 
 	req := httptest.NewRequest("GET", "http://example.com/oauth/token", nil)
 	session := &sessionState{
@@ -107,7 +108,7 @@ func TestUserinfoOK(t *testing.T) {
 }
 
 func TestWebMessage(t *testing.T) {
-	srv := NewAuthServer(&AuthServerOptions{"../../static"}).(*authServer)
+	srv := NewAuthServer(&AuthServerOptions{"../../static", false}).(*authServer)
 	session := &sessionState{
 		email:    "user@example.com",
 		name:     "John Doe",
@@ -141,4 +142,21 @@ func TestWebMessage(t *testing.T) {
 	m := re.FindStringSubmatch(doc)
 	require.Len(t, m, 2)
 	assert.Equal(t, params.Get("redirect_uri"), m[1])
+}
+
+func TestRedirectURI(t *testing.T) {
+	values := url.Values{
+		"redirect_uri": []string{"http://localhost:8080"},
+		"state":        []string{"123"},
+	}
+	uri, err := makeRedirectURI("oauth|xyz", values)
+	if err != nil {
+		t.Error(err)
+	}
+	if !strings.HasPrefix(uri.String(), "http://localhost:8080") {
+		t.Error(uri.String())
+	}
+	if uri.Query().Get("state") != "123" {
+		t.Error(uri.String())
+	}
 }

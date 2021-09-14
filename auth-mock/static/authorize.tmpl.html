@@ -10,12 +10,17 @@
         (function (window, document, undefined) {
             // Begin : these values rendered by server
             var redirectURI = "{{.RedirectURI}}";
-            var webMessageRequest = {};
+            var webMessageRequest = {
+            {{- with .WebMessageURI}}     web_message_uri: "{{.}}",     {{end}}
+            {{- with .WebMessageTarget}}  web_message_target: "{{.}}",  {{end}}
+            };
             var authorizationResponse = {
                 type: "authorization_response",
                 response: {
-                    code: "{{.Code}}",
-                    state: "{{.State}}"
+            {{- with .Code}}  code: "{{.}}",      {{end}}
+            {{- with .State}}  state: "{{.}}",    {{end}}
+            {{- with .Error}} error: "{{.}}",     {{end}}
+            {{- with .ErrorDescription}} error_description: "{{.}}",    {{end}}
                 }
             };
             // End
