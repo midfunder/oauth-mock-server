@@ -4,7 +4,7 @@ The auth-mock directory contains a OAuth authentication server that
 allows the user to select its identity parameters without suplying
 any credentials. It is designed as a mock server for integration test.
 
-The _app-client_ directory contains a react app which uses the  [auth0/auth0-react](https://www.npmjs.com/package/@auth0/auth0-react) npm
+The _app-client_ directory contains a react app which uses the  [@auth0/auth0-react](https://www.npmjs.com/package/@auth0/auth0-react) npm
 package to authenticate with an OAuth server.
 
 The _app-server_ directory contains a node / nest.js API server that uses
@@ -41,3 +41,12 @@ used to verify the signed JWTs.
 
 The mock server attempts to follow the oauth authorization process defined in [RFC6749](https://datatracker.ietf.org/doc/html/rfc6749); however it has only
 been tested against the auth0-specific client APIs.
+
+The _integration_ directory contains a docker-compose configuration with
+an integration test that verifies that the authentication process against
+the fake auth server works as expected using the _@auth0/auth0-react_ npm
+package in the client web application.
+
+The initial authentication process uses by auth0-react is reasonably standard
+however on page refresh, the [@auth0/auth0-spa-js](https://www.npmjs.com/package/@auth0/auth0-spa-js) package  uses an iframe and an authorize request with a [HTML5 web message](https://datatracker.ietf.org/doc/html/draft-sakimura-oauth-wmrm-00) option and stays in _loading_ state for a long time if it doesn't receive the
+expected answer.

@@ -384,6 +384,8 @@ func (srv *authServer) loginHandler(w http.ResponseWriter, req *http.Request) {
 		redirectUri: values.Get("redirect_uri"),
 	}
 	srv.setSessionState(subject, session)
+
+	// chrome will block the cookie unless SameSite is set to None
 	cookie := &http.Cookie{
 		Name:     cookieName,
 		Value:    subject,
